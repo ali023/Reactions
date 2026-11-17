@@ -15,7 +15,8 @@
   #cam{flex:1;min-height:0;position:relative;background:#222}
   video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
   #badge{position:absolute;top:8px;left:8px;background:#0008;padding:6px 10px;border-radius:20px;font-size:14px}
-  #bar{display:flex;gap:6px;padding:6px;background:#111}
+  #bar{display:flex;flex-wrap:wrap;gap:6px;padding:6px;background:#111}
+  #bar button{flex:1 1 30%}
   #bar button{margin:0;padding:10px;background:#333}
 </style>
 </head>
@@ -31,12 +32,12 @@
   <div id="yt"><div id="player"></div></div>
   <div id="cam"><video id="v" autoplay playsinline muted></video><div id="badge">🎤 starting…</div></div>
   <div id="bar">
-    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button><button id="bVoice">Voice: off</button>
+    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button><button id="bVoice">Voice: off</button><button id="bRec" style="background:#e11d48">● Record</button><button id="bSave" style="display:none;background:#16a34a">Save video</button>
   </div>
 </div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
-let player, rec, ytReady=false, pendingId=null;
+let camStream, mr, chunks=[], blobOut=null, player, rec, ytReady=false, pendingId=null;
 const $=id=>document.getElementById(id);
 function parseId(u){
   const m=u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/); return m?m[1]:null;
@@ -73,13 +74,36 @@ $('start').onclick=async()=>{
   if(!id){ $('msg').textContent='Could not read that YouTube link.'; return; }
   if(!ytReady){ $('msg').textContent='YouTube is still loading, try again.'; return; }
   try{
-    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
-    $('v').srcObject=s;
+    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
+    $('v').srcObject=s; camStream=s;
   }catch(e){ $('msg').textContent='Camera blocked: '+e.message+' (page must be on https).'; return; }
   $('setup').style.display='none'; $('stage').style.display='flex';
   player=new YT.Player('player',{height:'100%',width:'100%',videoId:id,
     playerVars:{playsinline:1,rel:0,modestbranding:1},
     events:{onReady:()=>{ if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true); else setBadge('Voice off (iPhone) — tap Voice to enable'); }}});
+};
+function pickMime(){
+  for(const m of ['video/mp4','video/webm;codecs=vp9,opus','video/webm']) if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+$('bRec').onclick=()=>{
+  if(mr&&mr.state==='recording'){ mr.stop(); return; }
+  chunks=[]; blobOut=null; $('bSave').style.display='none';
+  const mime=pickMime();
+  mr=new MediaRecorder(camStream, mime?{mimeType:mime}:undefined);
+  mr.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+  mr.onstop=()=>{
+    blobOut=new Blob(chunks,{type:mr.mimeType||'video/mp4'});
+    $('bRec').textContent='● Record'; $('bSave').style.display='block'; setBadge('recorded — tap Save');
+  };
+  mr.start(1000); $('bRec').textContent='■ Stop'; setBadge('🔴 recording');
+};
+$('bSave').onclick=async()=>{
+  if(!blobOut) return;
+  const ext=blobOut.type.includes('mp4')?'mp4':'webm';
+  const file=new File([blobOut],'reaction.'+ext,{type:blobOut.type});
+  try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; } }catch(_){}
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blobOut); a.download=file.name; a.click();
 };
 let voiceOn=false;
 function setVoice(on){
