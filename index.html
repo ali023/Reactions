@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Voice-Pause Reaction Studio</title>
+<title>Reaction Studio</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
   html,body{margin:0;height:100%;background:#000;color:#fff;font-family:system-ui,sans-serif}
@@ -24,8 +24,8 @@
 </head>
 <body>
 <div id="setup">
-  <h2>Voice-Pause Reaction Studio</h2>
-  <p>Pause/play by voice or buttons. Say <b>"pause"</b>, <b>"play"</b>, <b>"back"</b>.</p>
+  <h2>Reaction Studio</h2>
+  <p>Control the video with the Play, Pause, -10s and +10s buttons.</p>
   <input type="text" id="url" placeholder="Paste a YouTube link">
   <div class="or">— or —</div>
   <input type="file" id="file" accept="video/*">
@@ -37,8 +37,7 @@
   <div id="top"><div id="player"></div><video id="lv" playsinline></video></div>
   <div id="cam"><video id="v" autoplay playsinline muted></video><div id="badge">ready</div></div>
   <div id="bar">
-    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button>
-    <button id="bVoice">Voice: off</button>
+    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button><button id="bFwd">+10s</button>
     <button id="bRec" style="background:#e11d48">● Record</button>
     <button id="bSave" style="display:none;background:#16a34a">Save video</button>
   </div>
@@ -54,7 +53,7 @@
 <script>
 const $=id=>document.getElementById(id);
 let camStream, mr, chunks=[], blobOut=null, player, rec, ytReady=false;
-let mode='yt', lv=$('lv'), voiceOn=false;
+let mode='yt', lv=$('lv');
 let actx, dest, mediaSrc, micSrc, rafId;
 
 function onYouTubeIframeAPIReady(){ ytReady=true; }
@@ -69,34 +68,10 @@ function doBack(){
   else lv.currentTime=Math.max(0,lv.currentTime-10);
   setBadge('⏪ -10s');
 }
-function handle(text){
-  text=text.toLowerCase();
-  if(/\b(pause|stop|wait|hold on)\b/.test(text)) doPause();
-  else if(/\b(play|go|continue|resume)\b/.test(text)) doPlay();
-  else if(/\b(back|rewind|replay)\b/.test(text)) doBack();
-}
-
-/* ---- voice ---- */
-function startListening(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){ setBadge('Voice not supported — use buttons'); return; }
-  rec=new SR(); rec.continuous=true; rec.interimResults=true; rec.lang='en-US';
-  let last=0;
-  rec.onresult=e=>{
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      if(i<last) continue;
-      handle(e.results[i][0].transcript);
-      if(e.results[i].isFinal) last=i+1;
-    }
-  };
-  rec.onend=()=>{ try{rec.start();}catch(_){} last=0; };
-  rec.onerror=e=>setBadge('mic: '+e.error);
-  try{ rec.start(); setBadge('🎤 listening'); }catch(_){}
-}
-function setVoice(on){
-  voiceOn=on; $('bVoice').textContent='Voice: '+(on?'on':'off');
-  if(on) startListening();
-  else if(rec){ rec.onend=null; try{rec.stop();}catch(_){} setBadge('voice off'); }
+function doFwd(){
+  if(mode==='yt') player.seekTo(player.getCurrentTime()+10,true);
+  else lv.currentTime=Math.min(lv.duration||1e9,lv.currentTime+10);
+  setBadge('⏩ +10s');
 }
 
 /* ---- recording ---- */
@@ -189,16 +164,15 @@ $('start').onclick=async()=>{
     lv.src=URL.createObjectURL(f); lv.load();
     lv.onloadeddata=()=>{ lv.currentTime=0.01; };
     setBadge('video loaded — tap Record to begin');
-    if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true);
   } else {
     mode='yt';
     player=new YT.Player('player',{height:'100%',width:'100%',videoId:id,
       playerVars:{playsinline:1,rel:0,modestbranding:1},
-      events:{onReady:()=>{ if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true); else setBadge('Voice off (iPhone) — tap Voice to enable'); }}});
+      events:{onReady:()=>setBadge('ready')}});
   }
 };
 $('bPlay').onclick=doPlay; $('bPause').onclick=doPause; $('bBack').onclick=doBack;
-$('bVoice').onclick=()=>setVoice(!voiceOn);
+$('bFwd').onclick=doFwd;
 </script>
 </body>
 </html>
