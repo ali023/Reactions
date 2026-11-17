@@ -8,50 +8,68 @@
   html,body{margin:0;height:100%;background:#000;color:#fff;font-family:system-ui,sans-serif}
   #setup{padding:20px;max-width:480px;margin:auto}
   input,button{font-size:16px;padding:12px;border-radius:10px;border:0;width:100%;box-sizing:border-box;margin:6px 0}
+  input[type=text]{background:#fff;color:#000}
   button{background:#e11d48;color:#fff;font-weight:600}
+  .or{text-align:center;opacity:.6;margin:4px 0}
   #stage{display:none;height:100%;flex-direction:column}
-  #yt{flex:1;min-height:0;background:#111}
-  #yt iframe{width:100%;height:100%}
+  #top{flex:1;min-height:0;background:#111;position:relative}
+  #top iframe,#lv{width:100%;height:100%}
+  #lv{object-fit:contain;background:#111;display:none}
   #cam{flex:1;min-height:0;position:relative;background:#222}
-  video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #v{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
   #badge{position:absolute;top:8px;left:8px;background:#0008;padding:6px 10px;border-radius:20px;font-size:14px}
-  #bar{display:flex;flex-wrap:wrap;gap:6px;padding:6px;background:#111}
-  #bar button{flex:1 1 30%}
-  #bar button{margin:0;padding:10px;background:#333}
+  #bar{display:flex;flex-wrap:wrap;gap:6px;padding:6px;padding-bottom:max(6px,env(safe-area-inset-bottom));background:#111}
+  #bar button{margin:0;padding:10px;background:#333;flex:1 1 30%}
 </style>
 </head>
 <body>
 <div id="setup">
   <h2>Voice-Pause Reaction Studio</h2>
-  <p>Paste a YouTube link. Say <b>"pause"</b> / <b>"stop"</b> to pause, <b>"play"</b> / <b>"go"</b> to resume, <b>"back"</b> to rewind 10s.</p>
-  <input id="url" placeholder="https://youtube.com/watch?v=...">
+  <p>Pause/play by voice or buttons. Say <b>"pause"</b>, <b>"play"</b>, <b>"back"</b>.</p>
+  <input type="text" id="url" placeholder="Paste a YouTube link">
+  <div class="or">— or —</div>
+  <input type="file" id="file" accept="video/*">
+  <p style="font-size:13px;opacity:.7">Using a video file records the video + your camera + both sounds together in one vertical clip. YouTube links can't be captured, so they only record you.</p>
   <button id="start">Start</button>
   <p id="msg"></p>
 </div>
 <div id="stage">
-  <div id="yt"><div id="player"></div></div>
-  <div id="cam"><video id="v" autoplay playsinline muted></video><div id="badge">🎤 starting…</div></div>
+  <div id="top"><div id="player"></div><video id="lv" playsinline></video></div>
+  <div id="cam"><video id="v" autoplay playsinline muted></video><div id="badge">ready</div></div>
   <div id="bar">
-    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button><button id="bVoice">Voice: off</button><button id="bRec" style="background:#e11d48">● Record</button><button id="bSave" style="display:none;background:#16a34a">Save video</button>
+    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button>
+    <button id="bVoice">Voice: off</button>
+    <button id="bRec" style="background:#e11d48">● Record</button>
+    <button id="bSave" style="display:none;background:#16a34a">Save video</button>
   </div>
 </div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
-let camStream, mr, chunks=[], blobOut=null, player, rec, ytReady=false, pendingId=null;
 const $=id=>document.getElementById(id);
-function parseId(u){
-  const m=u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/); return m?m[1]:null;
-}
+let camStream, mr, chunks=[], blobOut=null, player, rec, ytReady=false;
+let mode='yt', lv=$('lv'), voiceOn=false;
+let actx, dest, mediaSrc, micSrc, rafId;
+
 function onYouTubeIframeAPIReady(){ ytReady=true; }
 function setBadge(t){ $('badge').textContent=t; }
+function parseId(u){ const m=u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/); return m?m[1]:null; }
 
+/* ---- playback control (works for both modes) ---- */
+function doPlay(){ if(mode==='yt'){player.playVideo();} else {lv.play();} setBadge('▶ playing'); }
+function doPause(){ if(mode==='yt'){player.pauseVideo();} else {lv.pause();} setBadge('⏸ paused'); }
+function doBack(){
+  if(mode==='yt') player.seekTo(Math.max(0,player.getCurrentTime()-10),true);
+  else lv.currentTime=Math.max(0,lv.currentTime-10);
+  setBadge('⏪ -10s');
+}
 function handle(text){
   text=text.toLowerCase();
-  if(/\b(pause|stop|wait|hold on)\b/.test(text)){ player.pauseVideo(); setBadge('⏸ paused'); }
-  else if(/\b(play|go|continue|resume)\b/.test(text)){ player.playVideo(); setBadge('▶ playing'); }
-  else if(/\b(back|rewind|replay)\b/.test(text)){ player.seekTo(Math.max(0,player.getCurrentTime()-10),true); setBadge('⏪ -10s'); }
+  if(/\b(pause|stop|wait|hold on)\b/.test(text)) doPause();
+  else if(/\b(play|go|continue|resume)\b/.test(text)) doPlay();
+  else if(/\b(back|rewind|replay)\b/.test(text)) doBack();
 }
 
+/* ---- voice ---- */
 function startListening(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){ setBadge('Voice not supported — use buttons'); return; }
@@ -68,31 +86,63 @@ function startListening(){
   rec.onerror=e=>setBadge('mic: '+e.error);
   try{ rec.start(); setBadge('🎤 listening'); }catch(_){}
 }
+function setVoice(on){
+  voiceOn=on; $('bVoice').textContent='Voice: '+(on?'on':'off');
+  if(on) startListening();
+  else if(rec){ rec.onend=null; try{rec.stop();}catch(_){} setBadge('voice off'); }
+}
 
-$('start').onclick=async()=>{
-  const id=parseId($('url').value.trim());
-  if(!id){ $('msg').textContent='Could not read that YouTube link.'; return; }
-  if(!ytReady){ $('msg').textContent='YouTube is still loading, try again.'; return; }
-  try{
-    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
-    $('v').srcObject=s; camStream=s;
-  }catch(e){ $('msg').textContent='Camera blocked: '+e.message+' (page must be on https).'; return; }
-  $('setup').style.display='none'; $('stage').style.display='flex';
-  player=new YT.Player('player',{height:'100%',width:'100%',videoId:id,
-    playerVars:{playsinline:1,rel:0,modestbranding:1},
-    events:{onReady:()=>{ if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true); else setBadge('Voice off (iPhone) — tap Voice to enable'); }}});
-};
+/* ---- recording ---- */
 function pickMime(){
-  for(const m of ['video/mp4','video/webm;codecs=vp9,opus','video/webm']) if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m;
+  for(const m of ['video/mp4','video/webm;codecs=vp9,opus','video/webm'])
+    if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m;
   return '';
+}
+function drawCover(ctx,el,w,h,x,y,W,H,mirror){
+  const r=Math.max(W/w,H/h), sw=W/r, sh=H/r, sx=(w-sw)/2, sy=(h-sh)/2;
+  ctx.save(); ctx.beginPath(); ctx.rect(x,y,W,H); ctx.clip();
+  if(mirror){ ctx.translate(x+W,y); ctx.scale(-1,1); ctx.drawImage(el,sx,sy,sw,sh,0,0,W,H); }
+  else ctx.drawImage(el,sx,sy,sw,sh,x,y,W,H);
+  ctx.restore();
+}
+function drawContain(ctx,el,w,h,x,y,W,H){
+  const r=Math.min(W/w,H/h), dw=w*r, dh=h*r;
+  ctx.drawImage(el,x+(W-dw)/2,y+(H-dh)/2,dw,dh);
+}
+function buildComposite(){
+  const cv=document.createElement('canvas'); cv.width=720; cv.height=1280;
+  const ctx=cv.getContext('2d');
+  const frame=()=>{
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,720,1280);
+    if(lv.videoWidth) drawContain(ctx,lv,lv.videoWidth,lv.videoHeight,0,0,720,640);
+    const cvid=$('v');
+    if(cvid.videoWidth) drawCover(ctx,cvid,cvid.videoWidth,cvid.videoHeight,0,640,720,640,true);
+    rafId=requestAnimationFrame(frame);
+  };
+  frame();
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!actx){ actx=new AC(); dest=actx.createMediaStreamDestination();
+    mediaSrc=actx.createMediaElementSource(lv);
+    mediaSrc.connect(dest); mediaSrc.connect(actx.destination);
+    const at=camStream.getAudioTracks();
+    if(at.length){ micSrc=actx.createMediaStreamSource(new MediaStream([at[0]])); micSrc.connect(dest); }
+  }
+  if(actx.state==='suspended') actx.resume();
+  const out=cv.captureStream(30);
+  dest.stream.getAudioTracks().forEach(t=>out.addTrack(t));
+  return out;
 }
 $('bRec').onclick=()=>{
   if(mr&&mr.state==='recording'){ mr.stop(); return; }
   chunks=[]; blobOut=null; $('bSave').style.display='none';
+  let stream=camStream;
+  if(mode==='file'){ stream=buildComposite(); lv.play(); }
   const mime=pickMime();
-  mr=new MediaRecorder(camStream, mime?{mimeType:mime}:undefined);
+  try{ mr=new MediaRecorder(stream, mime?{mimeType:mime}:undefined); }
+  catch(e){ setBadge('Recording not supported: '+e.message); return; }
   mr.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
   mr.onstop=()=>{
+    if(rafId) cancelAnimationFrame(rafId);
     blobOut=new Blob(chunks,{type:mr.mimeType||'video/mp4'});
     $('bRec').textContent='● Record'; $('bSave').style.display='block'; setBadge('recorded — tap Save');
   };
@@ -105,16 +155,33 @@ $('bSave').onclick=async()=>{
   try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; } }catch(_){}
   const a=document.createElement('a'); a.href=URL.createObjectURL(blobOut); a.download=file.name; a.click();
 };
-let voiceOn=false;
-function setVoice(on){
-  voiceOn=on; $('bVoice').textContent='Voice: '+(on?'on':'off');
-  if(on) startListening();
-  else if(rec){ rec.onend=null; try{rec.stop();}catch(_){} setBadge('voice off'); }
-}
+
+/* ---- start ---- */
+$('start').onclick=async()=>{
+  const f=$('file').files[0];
+  const id=parseId($('url').value.trim());
+  if(!f&&!id){ $('msg').textContent='Paste a YouTube link or choose a video file.'; return; }
+  if(!f&&!ytReady){ $('msg').textContent='YouTube is still loading, try again.'; return; }
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});
+    $('v').srcObject=camStream;
+  }catch(e){ $('msg').textContent='Camera/mic blocked: '+e.message; return; }
+  $('setup').style.display='none'; $('stage').style.display='flex';
+  if(f){
+    mode='file'; $('player').style.display='none'; lv.style.display='block';
+    lv.src=URL.createObjectURL(f); lv.load();
+    lv.onloadeddata=()=>{ lv.currentTime=0.01; };
+    setBadge('video loaded — tap Record to begin');
+    if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true);
+  } else {
+    mode='yt';
+    player=new YT.Player('player',{height:'100%',width:'100%',videoId:id,
+      playerVars:{playsinline:1,rel:0,modestbranding:1},
+      events:{onReady:()=>{ if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true); else setBadge('Voice off (iPhone) — tap Voice to enable'); }}});
+  }
+};
+$('bPlay').onclick=doPlay; $('bPause').onclick=doPause; $('bBack').onclick=doBack;
 $('bVoice').onclick=()=>setVoice(!voiceOn);
-$('bPlay').onclick=()=>handle('play');
-$('bPause').onclick=()=>handle('pause');
-$('bBack').onclick=()=>handle('back');
 </script>
 </body>
 </html>
