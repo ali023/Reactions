@@ -31,7 +31,7 @@
   <div id="yt"><div id="player"></div></div>
   <div id="cam"><video id="v" autoplay playsinline muted></video><div id="badge">🎤 starting…</div></div>
   <div id="bar">
-    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button>
+    <button id="bPlay">Play</button><button id="bPause">Pause</button><button id="bBack">-10s</button><button id="bVoice">Voice: off</button>
   </div>
 </div>
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -79,8 +79,15 @@ $('start').onclick=async()=>{
   $('setup').style.display='none'; $('stage').style.display='flex';
   player=new YT.Player('player',{height:'100%',width:'100%',videoId:id,
     playerVars:{playsinline:1,rel:0,modestbranding:1},
-    events:{onReady:()=>startListening()}});
+    events:{onReady:()=>{ if(!/iPhone|iPad|iPod/.test(navigator.userAgent)) setVoice(true); else setBadge('Voice off (iPhone) — tap Voice to enable'); }}});
 };
+let voiceOn=false;
+function setVoice(on){
+  voiceOn=on; $('bVoice').textContent='Voice: '+(on?'on':'off');
+  if(on) startListening();
+  else if(rec){ rec.onend=null; try{rec.stop();}catch(_){} setBadge('voice off'); }
+}
+$('bVoice').onclick=()=>setVoice(!voiceOn);
 $('bPlay').onclick=()=>handle('play');
 $('bPause').onclick=()=>handle('pause');
 $('bBack').onclick=()=>handle('back');
