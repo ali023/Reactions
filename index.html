@@ -43,6 +43,13 @@
     <button id="bSave" style="display:none;background:#16a34a">Save video</button>
   </div>
 </div>
+<div id="prev" style="display:none;position:fixed;inset:0;background:#000;z-index:9;flex-direction:column;padding:10px;box-sizing:border-box">
+  <video id="pv" controls playsinline style="flex:1;min-height:0;width:100%;background:#111"></video>
+  <p id="pmsg" style="font-size:13px;opacity:.8;margin:6px 0">Tap Share, then Save Video. Or press and hold the video.</p>
+  <button id="pShare" style="background:#16a34a">Share / Save</button>
+  <a id="pDl" style="display:block;text-align:center;color:#fff;padding:10px">Download file</a>
+  <button id="pClose" style="background:#333">Back to recording</button>
+</div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 const $=id=>document.getElementById(id);
@@ -144,16 +151,26 @@ $('bRec').onclick=()=>{
   mr.onstop=()=>{
     if(rafId) cancelAnimationFrame(rafId);
     blobOut=new Blob(chunks,{type:mr.mimeType||'video/mp4'});
-    $('bRec').textContent='● Record'; $('bSave').style.display='block'; setBadge('recorded — tap Save');
+    $('bRec').textContent='● Record'; $('bSave').style.display='block'; setBadge('recorded'); showPreview();
   };
   mr.start(1000); $('bRec').textContent='■ Stop'; setBadge('🔴 recording');
 };
-$('bSave').onclick=async()=>{
+function showPreview(){
   if(!blobOut) return;
+  const url=URL.createObjectURL(blobOut);
+  const ext=blobOut.type.includes('mp4')?'mp4':'webm';
+  $('pv').src=url; $('pDl').href=url; $('pDl').download='reaction.'+ext; $('pDl').target='_blank'; $('pDl').rel='noopener';
+  $('prev').style.display='flex';
+}
+$('bSave').onclick=showPreview;
+$('pClose').onclick=()=>{ $('prev').style.display='none'; $('pv').pause(); };
+$('pShare').onclick=async()=>{
   const ext=blobOut.type.includes('mp4')?'mp4':'webm';
   const file=new File([blobOut],'reaction.'+ext,{type:blobOut.type});
-  try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; } }catch(_){}
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blobOut); a.download=file.name; a.click();
+  try{
+    if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; }
+    $('pmsg').textContent='Sharing not available here: press and hold the video, or tap Download file.';
+  }catch(e){ if(e.name!=='AbortError') $('pmsg').textContent='Share failed ('+e.name+'): press and hold the video or tap Download file.'; }
 };
 
 /* ---- start ---- */
